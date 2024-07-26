@@ -14,7 +14,9 @@ vici_master = {
 
 excluding_criteria_for_viciMaster = [
     ('Server IP', ''),
-    ('Activate Report', 'N')
+    ('Activate Report', 'N'),
+    ('Activate Report', ''),
 ]
 
-DBCredentials = namedtuple('Credentials','callCenter host user database password')
+DBCredentials = namedtuple(
+    'Credentials', 'callCenter host user database password')

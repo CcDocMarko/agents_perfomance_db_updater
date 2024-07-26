@@ -1,4 +1,4 @@
-## Variance Bot
+## Record insertion bot
 
 ## Requirements
 - Python 3.10+
