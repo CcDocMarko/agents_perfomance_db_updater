@@ -16,7 +16,8 @@ SELECT
     IFNULL(booked_data.booked_calls, 0) AS booked_calls,
     IFNULL(answering_machine_data.answering_machine_calls, 0) AS answering_machine_calls,
     IFNULL(adc_data.adc_calls, 0) AS adc_calls,
-    IFNULL(wait_time_data.average_wait_sec, 0) AS average_wait_sec
+    IFNULL(wait_time_data.average_wait_sec, 0) AS average_wait_sec,
+    IFNULL(total_agent_dialer.total_dialer_hrs, 0) AS total_dialer_time
 FROM
     (SELECT
          DISTINCT vicidial_agent_log.user AS agent_id,
@@ -121,6 +122,17 @@ LEFT JOIN
      GROUP BY
          vicidial_agent_log.user
     ) AS wait_time_data ON agent_log.agent_id = wait_time_data.agent_id
+LEFT JOIN
+    (SELECT
+        DISTINCT vicidial_agent_log.user AS agent_id,
+        (SUM(talk_sec) + SUM(wait_sec) + SUM(pause_sec) + SUM(dispo_sec) + SUM(dead_sec)) / 3600 AS total_dialer_hrs
+    FROM 
+        vicidial_agent_log
+    JOIN
+         vicidial_users ON vicidial_agent_log.user = vicidial_users.user
+    WHERE  event_time >= (SELECT CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 00:00:00')) AND event_time <= (SELECT CONCAT(DATE_SUB(CURDATE(), INTERVAL 1 DAY), ' 23:59:59'))
+    GROUP BY 
+        agent_id) AS total_agent_dialer ON agent_log.agent_id = total_agent_dialer.agent_id
 """
 
 SQL_INSERT = """
@@ -135,8 +147,9 @@ SQL_INSERT = """
         answering_machine_calls,
         adc_calls,
         average_wait_sec,
-        log_date
-    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        log_date,
+        total_dialer_time
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
 
 for record in records:
@@ -166,7 +179,8 @@ def execute_query(cursor: MySQLCursor, query: str):
 
 
 """
- Field                   | Type         | Null | Key | Default | Extra          |
++-------------------------+--------------+------+-----+---------+----------------+
+| Field                   | Type         | Null | Key | Default | Extra          |
 +-------------------------+--------------+------+-----+---------+----------------+
 | id                      | int(11)      | NO   | PRI | NULL    | auto_increment |
 | call_center             | varchar(255) | YES  |     | NULL    |                |
@@ -179,7 +193,9 @@ def execute_query(cursor: MySQLCursor, query: str):
 | answering_machine_calls | int(11)      | YES  |     | NULL    |                |
 | adc_calls               | int(11)      | YES  |     | NULL    |                |
 | average_wait_sec        | float        | YES  |     | NULL    |                |
-| log_date                | date         | NO   |     | NULL   
+| log_date                | date         | NO   |     | NULL    |                |
+| total_dialer_time       | float        | YES  |     | NULL    |                |
++-------------------------+--------------+------+-----+---------+----------------+  
 """
 
 
@@ -196,7 +212,8 @@ def map_to_table(data, call_center):
             "answering_machine_calls": record[6],
             "adc_calls": float(record[7]) if isinstance(record[8], Decimal) else record[8],
             "average_wait_sec": float(record[8]) if isinstance(record[8], Decimal) else record[8],
-            "log_date": yesterday
+            "log_date": yesterday,
+            "total_dialer_time": float(record[9])
         }
         for record in data
     ]
@@ -233,6 +250,7 @@ if __name__ == '__main__':
                 record['adc_calls'],
                 record['average_wait_sec'],
                 record['log_date'],
+                record['total_dialer_time']
             ))
         db_connection.commit()
     print(f"client {record['Server IP']} agent logs were created!")
