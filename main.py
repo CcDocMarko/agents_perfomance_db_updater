@@ -123,6 +123,21 @@ LEFT JOIN
     ) AS wait_time_data ON agent_log.agent_id = wait_time_data.agent_id
 """
 
+SQL_INSERT = """
+    INSERT INTO AGENTS_PERFORMANCE_TABLE (
+        call_center,
+        agent_id,
+        full_name,
+        total_calls,
+        human_answered_calls,
+        drop_calls,
+        booked_calls,
+        answering_machine_calls,
+        adc_calls,
+        average_wait_sec,
+        log_date
+    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+"""
 
 for record in records:
     cb_name = record['pr']
@@ -151,24 +166,26 @@ def execute_query(cursor: MySQLCursor, query: str):
 
 
 """
-DATABASE FIELDS:
-    call_center,
-    agent_id,
-    full_name,
-    total_calls,
-    human_answered_calls,
-    drop_calls,
-    booked_calls,
-    answering_machine_calls,
-    adc_calls,
-    average_wait_sec
+ Field                   | Type         | Null | Key | Default | Extra          |
++-------------------------+--------------+------+-----+---------+----------------+
+| id                      | int(11)      | NO   | PRI | NULL    | auto_increment |
+| call_center             | varchar(255) | YES  |     | NULL    |                |
+| agent_id                | varchar(255) | YES  |     | NULL    |                |
+| full_name               | varchar(255) | YES  |     | NULL    |                |
+| total_calls             | int(11)      | YES  |     | NULL    |                |
+| human_answered_calls    | int(11)      | YES  |     | NULL    |                |
+| drop_calls              | int(11)      | YES  |     | NULL    |                |
+| booked_calls            | int(11)      | YES  |     | NULL    |                |
+| answering_machine_calls | int(11)      | YES  |     | NULL    |                |
+| adc_calls               | int(11)      | YES  |     | NULL    |                |
+| average_wait_sec        | float        | YES  |     | NULL    |                |
+| log_date                | date         | NO   |     | NULL   
 """
 
 
 def map_to_table(data, call_center):
     return [
         {
-            "log_date": yesterday.isoformat(),
             "call_center": call_center,
             "agent_id": record[0],
             "full_name": record[1],
@@ -178,22 +195,44 @@ def map_to_table(data, call_center):
             "booked_calls": record[5],
             "answering_machine_calls": record[6],
             "adc_calls": float(record[7]) if isinstance(record[8], Decimal) else record[8],
-            "average_wait_sec": float(record[8]) if isinstance(record[8], Decimal) else record[8]
+            "average_wait_sec": float(record[8]) if isinstance(record[8], Decimal) else record[8],
+            "log_date": yesterday
         }
         for record in data
     ]
 
 
 if __name__ == '__main__':
+    db_connection = create_db_connection(
+        "148.72.132.231", "asterisk", "cron", "1234")
+    if not db_connection:
+        log_file.append_line(
+            f"Error: Failed connection to local server database")
+        exit()
+    cursor = db_connection.cursor()
     for record in records:
         cc_name = record['pr']
-        db_connection = create_db_connection(
+        client_db_connection = create_db_connection(
             record['Server IP'], "asterisk", "cron", "1234")
-        if not db_connection:
+        if not client_db_connection:
             continue
         log_file.append_line(f"Succesfully connected to {cc_name} asterisk db")
-        cursor = db_connection.cursor()
-        agents_performance = execute_query(cursor, SQL_QUERY)
+        client_cursor = client_db_connection.cursor()
+        agents_performance = execute_query(client_cursor, SQL_QUERY)
         mapped_records = map_to_table(agents_performance, cc_name)
         for record in mapped_records:
-            print(record)
+            cursor.execute(SQL_INSERT, (
+                record['call_center'],
+                record['agent_id'],
+                record['full_name'],
+                record['total_calls'],
+                record['human_answered_calls'],
+                record['drop_calls'],
+                record['booked_calls'],
+                record['answering_machine_calls'],
+                record['adc_calls'],
+                record['average_wait_sec'],
+                record['log_date'],
+            ))
+        db_connection.commit()
+    print(f"client {record['Server IP']} agent logs were created!")
